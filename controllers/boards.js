@@ -66,6 +66,7 @@ router.get("/:boardId", verifyToken, async (req, res) => {
   }
 });
 
+//edit title,dueDate and startDate on the board
 router.put("/:boardId", verifyToken, async (req, res) => {
   try {
     const boardId = req.params.boardId;
@@ -85,39 +86,9 @@ router.put("/:boardId", verifyToken, async (req, res) => {
       return res.status(403).json("You are not authorized to edit this board");
     }
 
-    //add a new member to the board
-    if (isOwner && req.body?.username) {
-      //if they adding in a member ID , ensure the individual is a user
-      const findMemberInDb = await User.findOne({
-        username: req.body.username,
-      });
-
-      if (!findMemberInDb) {
-        res.status(403).json("No user exists");
-      }
-
-      if (!findMemberInDb._id.equals(currentBoard.ownerId)) {
-        await Board.findByIdAndUpdate(
-          boardId,
-          { $addToSet: { memberIds: findMemberInDb._id } } //stops duplicates
-        );
-      }
-    }
-
-    //remove a member from the board
-    if (isOwner && req.body?.removeUsername) {
-      const findMemberInDb = await User.findOne({
-        username: req.body.removeUsername,
-      });
-      if (!findMemberInDb) {
-        return res.status(404).json("No user exists");
-      }
-
-      await Board.findByIdAndUpdate(
-        boardId,
-        { $pull: { memberIds: findMemberInDb._id } }, // $pull removes
-      );
-    }
+    // guard: members cannot change membership/owner
+    delete req.body.memberIds;
+    delete req.body.ownerId;
 
     //update board
     const updatedBoard = await Board.findByIdAndUpdate(boardId, req.body, {
@@ -126,6 +97,226 @@ router.put("/:boardId", verifyToken, async (req, res) => {
 
     console.log("updated board", updatedBoard);
     res.status(200).json(updatedBoard);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//*Member routes */
+//add a member
+router.put("/:boardId/member", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const newUsername = req.body.username;
+    //current board details
+    const currentBoard = await Board.findById(boardId);
+    //find searched user in db
+    const findUserInDB = await User.findOne({ username: newUsername });
+
+    if (!findUserInDB) {
+      return res.status(403).json("No User exists by that username");
+    }
+
+    //Only owner of the board can add members and make sure Owner is not adding Owner as a member
+    const isOwner = currentBoard.ownerId.equals(req.user._id);
+
+    if (!isOwner) {
+      return res.status(403).json("Only Owner can edit members");
+    }
+
+    if (isOwner && !currentBoard.ownerId.equals(findUserInDB._id)) {
+      await Board.findByIdAndUpdate(
+        boardId,
+        { $addToSet: { memberIds: findUserInDB._id } } //stops duplicates
+      );
+    }
+    res.status(201).json({
+      message: `User ${newUsername} has been added as a member successfully`,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+//remove a member
+router.put("/:boardId/member/:memberId", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const memberId = req.params.memberId;
+
+    //current board details
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    //Only owner of the board can edit member
+    const isOwner = currentBoard.ownerId.equals(req.user._id);
+
+    if (!isOwner) {
+      return res.status(403).json("Only Owner can edit members");
+    }
+
+    // Prevent removing the owner via this endpoint
+    if (currentBoard.ownerId.equals(memberId)) {
+      return res
+        .status(400)
+        .json("Owner cannot be removed from their own board");
+    }
+
+    //ensure actual member
+    const isMember = currentBoard.memberIds.some((id) => id.equals(memberId));
+    if (!isMember) {
+      return res.status(404).json("User is not a member of this board");
+    }
+
+    if (isOwner) {
+      await Board.findByIdAndUpdate(
+        boardId,
+        { $pull: { memberIds: new mongoose.Types.ObjectId(memberId) } } // $pull removes and type casted to an object
+      );
+    }
+
+    res.status(200).json({
+      message: `Member has been removed`,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//*Column routes */
+//add a column
+router.post("/:boardId/column", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    //get parent
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    let maxPosition = -1;
+
+   // console.log(currentBoard.columns.length)
+    if (currentBoard.columns.length > 0) {
+      for (const column of currentBoard.columns) {
+        if (column.position > maxPosition) {
+          //console.log(maxPosition);
+          maxPosition = column.position;
+        }
+      }
+    }
+
+    //position
+    const lastPosition = maxPosition;
+
+    //pushing new data to embedded column
+    currentBoard.columns.push({
+      title: req.body.title,
+      position: lastPosition + 1,
+    });
+
+    await currentBoard.save();
+
+    const newColumn = currentBoard.columns[currentBoard.columns.length - 1];
+    res.status(201).json(newColumn);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//edit column
+router.put("/:boardId/column/:columnId", verifyToken, async (req, res) => {
+  try {
+    const { boardId, columnId } = req.params;
+    //get parent
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    //get column
+    const column = currentBoard.columns.id(columnId);
+
+    if (!column) {
+      return res.status(404).json("Column doesn't exist");
+    }
+
+    column.title = req.body.title;
+
+    await currentBoard.save();
+
+    res.status(200).json("column changed");
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//reorder columns
+router.put("/:boardId/columns/reorder", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const currentBoard = await Board.findById(boardId);
+    const { orderedColumnIds } = req.body; //array of column ids in new order
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    //reordering the db array of column ids byt the sorted list sent from frontend
+    orderedColumnIds.forEach((columnId, index) => {
+      const column = currentBoard.columns.id(columnId);
+      column.position = index;
+    });
+
+    currentBoard.columns.sort((a, b) => a.position - b.position); //ensure the array in the db matches position values
+
+    await currentBoard.save();
+    res.status(200).json(currentBoard.columns);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//delete a column
+router.delete("/:boardId/column/:columnId", verifyToken, async (req, res) => {
+  try {
+    const { boardId, columnId } = req.params;
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    const column = currentBoard.columns.id(columnId);
+
+    if (!column) {
+      return res.status(404).json("Column doesn't exist");
+    }
+
+    //can only delete column if it has no cards in it
+    if (column.cardIds.length > 0) {
+      return res
+        .status(409)
+        .json("You cannot delete column that contain cards");
+    }
+
+    //delete column
+    column.deleteOne();
+
+    //fix position of remaining columns
+    currentBoard.columns
+      .sort((a, b) => a.position - b.position)
+      .forEach((column, index) => {
+        column.position = index;
+      });
+
+    await currentBoard.save();
+
+    res.status(200).json("Column deleted");
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
