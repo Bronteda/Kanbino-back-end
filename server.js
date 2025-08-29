@@ -11,6 +11,7 @@ const mongoose = require('mongoose');
 //routers imported
 const authRouter = require('./controllers/auth');
 const boardRouter=require("./controllers/boards");
+const cardsRouter=require("./controllers/cards");
 
 //db connection 
 mongoose.connect(process.env.MONGODB_URI);
@@ -27,6 +28,7 @@ app.use(logger('dev'));
 //routers middleware
 app.use('/auth',authRouter);
 app.use('/boards', boardRouter);
+app.use('/cards',cardsRouter);
 
 //listening 
 const port = process.env.PORT ? process.env.PORT : 3000;

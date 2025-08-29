@@ -25,8 +25,11 @@ const cardSchema = new mongoose.Schema(
     columnId: { type: mongoose.Schema.Types.ObjectId, required: true },
     title: { type: String, required: true },
     description: { type: String, default: "" },
-    tags: [{ type: String }],
-    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     position: {
       type: Number,
       default: 0,

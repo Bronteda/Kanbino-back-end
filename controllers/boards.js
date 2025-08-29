@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const verifyToken = require("../middleware/verify-token");
 const Board = require("../models/board");
 const User = require("../models/user");
+const Card = require("../models/card");
 
 //just for me to user id's
 router.get("/user", verifyToken, async (req, res) => {
@@ -199,7 +200,7 @@ router.post("/:boardId/column", verifyToken, async (req, res) => {
 
     let maxPosition = -1;
 
-   // console.log(currentBoard.columns.length)
+    // console.log(currentBoard.columns.length)
     if (currentBoard.columns.length > 0) {
       for (const column of currentBoard.columns) {
         if (column.position > maxPosition) {
@@ -321,5 +322,89 @@ router.delete("/:boardId/column/:columnId", verifyToken, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+//**Add a card */
+
+router.post(
+  "/:boardId/column/:columnId/card",
+  verifyToken,
+  async (req, res) => {
+    try {
+      const { boardId, columnId } = req.params;
+      const currentBoard = await Board.findById(boardId);
+
+      if (!currentBoard) {
+        return res.status(404).json("Board not found");
+      }
+
+      const column = currentBoard.columns.id(columnId);
+
+      if (!column) {
+        return res.status(404).json("Column doesn't exist");
+      }
+
+      //ensure only owners and members can create card on this board
+      const userId = req.user._id;
+      const isOwnerReqUser = currentBoard.ownerId.equals(userId);
+      const isMemberReqUser = currentBoard.memberIds?.some((id) =>
+        id.equals(userId)
+      );
+      if (!isOwnerReqUser && !isMemberReqUser) {
+        return res
+          .status(403)
+          .json("You are not authorized to create cards on this board");
+      }
+
+      //Assigned to person
+      let findUserInDB;
+      const usernameAssigned = req.body.assignedTo ? req.body.assignedTo : null;
+      //find searched user in db
+      if (usernameAssigned) {
+        findUserInDB = await User.findOne({ username: usernameAssigned });
+
+        if (!findUserInDB) {
+          return res.status(404).json("No User exists by that username");
+        }
+
+        //trying to ensure the assigned to person is either the owner or a member of the board
+        const isOwner = currentBoard.ownerId.equals(findUserInDB._id);
+        const isMember = currentBoard.memberIds.some((id) =>
+          id.equals(findUserInDB._id)
+        );
+
+        if (!isMember && !isOwner) {
+          return res
+            .status(403)
+            .json("Assigned to person is not a member or owner of the board");
+        }
+      }
+
+      const assigned = findUserInDB ? findUserInDB._id : null;
+
+      //checking title
+      if (!req.body.title) {
+        return res.status(400).json("title required");
+      }
+
+      //create new card
+      const newCard = await Card.create({
+        boardId: boardId,
+        columnId: columnId,
+        title: req.body.title,
+        description: req.body.description ? req.body.description : "",
+        assignedTo: assigned,
+        position: column.cardIds.length,
+      });
+
+      column.cardIds.push(newCard._id);
+
+      await currentBoard.save();
+
+      res.status(201).json({newCard});
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 module.exports = router;
