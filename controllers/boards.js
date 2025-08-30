@@ -39,18 +39,23 @@ router.get("/", verifyToken, async (req, res) => {
 //create a new baord
 router.post("/", verifyToken, async (req, res) => {
   try {
-    //console.log("req.body", req.body);
+    // Remove time value from date strings (keep only YYYY-MM-DD)
+    const startDate = req.body.startDate ? req.body.startDate.split("T")[0] : undefined;
+    const dueDate = req.body.dueDate ? req.body.dueDate.split("T")[0] : undefined;
+    console.log(dueDate);
+
     const newBoard = await Board.create({
       title: req.body.title,
       ownerId: req.user._id,
-      startDate: req.body.startDate,
-      dueDate: req.body.dueDate,
+      startDate,
+      dueDate,
     });
-    res.status(200).json("New Board created");
+    res.status(200).json({ newBoard });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 //*Individual Board page*/
 
@@ -103,7 +108,61 @@ router.put("/:boardId", verifyToken, async (req, res) => {
   }
 });
 
+//delete board ? 
+router.delete("/:boardId", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    // Ensure user is authorized
+    const userId = req.user._id;
+    const isOwner = currentBoard.ownerId.equals(userId);
+    const isMember = currentBoard.memberIds.some((id) => id.equals(userId));
+
+    if (!isOwner && !isMember) {
+      return res.status(403).json("You are not authorized to delete this board");
+    }
+
+    await Card.deleteMany({ boardId });
+    await Board.findByIdAndDelete(boardId);
+    res.status(200).json({ message: "Board deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 //*Member routes */
+
+//get board members
+router.get("/:boardId/members", verifyToken, async (req, res) => {
+  try {
+    const boardId = req.params.boardId;
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    // Ensure user is authorized
+    const userId = req.user._id;
+    const isOwner = currentBoard.ownerId.equals(userId);
+    const isMember = currentBoard.memberIds.some((id) => id.equals(userId));
+
+    if (!isOwner && !isMember) {
+      return res.status(403).json("You are not authorized to view members of this board");
+    }
+
+    const members = await User.find({ _id: { $in: currentBoard.memberIds } });
+    res.status(200).json(members);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 //add a member
 router.put("/:boardId/member", verifyToken, async (req, res) => {
   try {
@@ -267,7 +326,7 @@ router.put("/:boardId/columns/reorder", verifyToken, async (req, res) => {
       return res.status(404).json("Board not found");
     }
 
-    //reordering the db array of column ids byt the sorted list sent from frontend
+    //reordering the db array of column ids by the sorted list sent from frontend
     orderedColumnIds.forEach((columnId, index) => {
       const column = currentBoard.columns.id(columnId);
       column.position = index;
