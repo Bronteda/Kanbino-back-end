@@ -188,13 +188,13 @@ router.put("/:cardId", verifyToken, async (req, res) => {
     let findUserInDB;
 
     if ("assignedTo" in req.body) {
-      const usernameAssigned = req.body.assignedTo ? req.body.assignedTo : null;
+      const userIdAssigned = req.body.assignedTo ? req.body.assignedTo : null;
       //find searched user in db
-      if (usernameAssigned) {
-        findUserInDB = await User.findOne({ username: usernameAssigned });
+      if (userIdAssigned) {
+        findUserInDB = await User.findById(userIdAssigned);
 
         if (!findUserInDB) {
-          return res.status(404).json("No User exists by that username");
+          return res.status(404).json("No User exists by that ID");
         }
 
         //trying to ensure the assigned to person is either the owner or a member of the board
@@ -303,18 +303,39 @@ router.post("/:cardId/comments", verifyToken, async (req, res) => {
     const card = await Card.findById(cardId);
     if (!card) return res.status(404).json("Card cannot be found");
 
-    req.body.author = req.user._id; //Set author to current user;
+    // Only push the required fields for a comment
+    const commentData = {
+      text: req.body.text,
+      author: req.user._id,
+      createdAt: new Date()
+    };
 
-    card.comments.push(req.body);
+    card.comments.push(commentData);
     await card.save();
 
-    const populatedCard = await Card.findById(cardId).populate(
-      "comments.author"
-    );
-
-    const newComment =
-      populatedCard.comments[populatedCard.comments.length - 1];
+    // Populate the author field for the newly added comment
+    const populatedCard = await Card.findById(cardId).populate("comments.author");
+    const newComment = populatedCard.comments[populatedCard.comments.length - 1];
     res.status(201).json({ comment: newComment }); //respond with new comment
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+//get comment by id
+router.get("/:cardId/comments/:commentId", verifyToken, async (req, res) => {
+  try {
+    const cardId = req.params.cardId;
+    const commentId = req.params.commentId;
+
+    const card = await Card.findById(cardId);
+    if (!card) return res.status(404).json("Card cannot be found");
+
+    const comment = card.comments.id(commentId);
+    if (!comment) return res.status(404).json("Comment cannot be found");
+
+    
+    res.status(200).json({ comment });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -366,13 +387,17 @@ router.delete("/:cardId/comments/:commentId", verifyToken, async (req, res) => {
     if (!comment) return res.status(404).json("Comment cannot be found");
 
     // Ensure the user is the author of the comment
-    if (!comment.author.equals(req.user._id)) {
+    if (
+      !comment.author ||
+      !comment.author.equals ||
+      !comment.author.equals(req.user._id)
+    ) {
       return res
         .status(403)
         .json("You are not authorized to delete this comment");
     }
 
-    comment.remove();
+    card.comments.pull(commentId);
     await card.save();
 
     res.status(200).json({ message: "Comment deleted successfully" });
