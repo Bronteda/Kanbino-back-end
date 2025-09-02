@@ -103,6 +103,11 @@ router.put("/move", verifyToken, async (req, res) => {
 
     // If moving within the same column, handle differently
     if (fromColumnId === toColumnId) {
+      // Validate toIndex is within bounds for the column
+      const cardsInColumn = await Card.find({ columnId: fromColumnId });
+      if (toIndex < 0 || toIndex >= cardsInColumn.length) {
+        return res.status(400).json("toIndex is out of bounds");
+      }
       // Moving within the same column
       if (card.position < toIndex) {
         // Moving down
@@ -125,16 +130,18 @@ router.put("/move", verifyToken, async (req, res) => {
           { $inc: { position: 1 } } // Increment position by 1
         );
       }
-      // Validate toIndex is within bounds
-      const cardsInColumn = await Card.find({ columnId: fromColumnId });
-      if (toIndex < 0 || toIndex >= cardsInColumn.length) {
-        return res.status(400).json("toIndex is out of bounds");
-      }
       card.position = toIndex;
       await card.save();
 
       res.status(200).json({ message: "Card moved successfully", card });
     } else {
+      // Validate toIndex is within bounds for the target column
+      const cardsInTargetColumn = await Card.find({ columnId: toColumnId });
+      if (toIndex < 0 || toIndex > cardsInTargetColumn.length) {
+        return res
+          .status(400)
+          .json("toIndex is out of bounds for target column");
+      }
       // Adjust positions in the original column
       await Card.updateMany(
         { columnId: fromColumnId, position: { $gt: card.position } }, //filter to only cards in the original column with position greater than the moved card
@@ -152,6 +159,18 @@ router.put("/move", verifyToken, async (req, res) => {
       // Move card to new column
       card.columnId = toColumnId;
       await card.save();
+
+      // Update cardIds arrays in board columns
+      const oldColumn = currentBoard.columns.id(fromColumnId);
+      if (oldColumn) {
+        oldColumn.cardIds = oldColumn.cardIds.filter(
+          (id) => !id.equals(cardId)
+        );
+      }
+      if (newColumn) {
+        newColumn.cardIds.splice(toIndex, 0, card._id);
+      }
+      await currentBoard.save();
 
       res.status(200).json({ message: "Card moved successfully", card });
     }
@@ -307,15 +326,18 @@ router.post("/:cardId/comments", verifyToken, async (req, res) => {
     const commentData = {
       text: req.body.text,
       author: req.user._id,
-      createdAt: new Date()
+      createdAt: new Date(),
     };
 
     card.comments.push(commentData);
     await card.save();
 
     // Populate the author field for the newly added comment
-    const populatedCard = await Card.findById(cardId).populate("comments.author");
-    const newComment = populatedCard.comments[populatedCard.comments.length - 1];
+    const populatedCard = await Card.findById(cardId).populate(
+      "comments.author"
+    );
+    const newComment =
+      populatedCard.comments[populatedCard.comments.length - 1];
     res.status(201).json({ comment: newComment }); //respond with new comment
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -334,7 +356,6 @@ router.get("/:cardId/comments/:commentId", verifyToken, async (req, res) => {
     const comment = card.comments.id(commentId);
     if (!comment) return res.status(404).json("Comment cannot be found");
 
-    
     res.status(200).json({ comment });
   } catch (error) {
     res.status(500).json({ error: error.message });
