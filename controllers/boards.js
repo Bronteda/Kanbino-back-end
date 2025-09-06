@@ -535,4 +535,33 @@ router.post(
   }
 );
 
+//get all cards on a specific board
+router.get("/:boardId/cards", verifyToken, async (req, res) => {
+  try {
+    const { boardId } = req.params;
+    const currentBoard = await Board.findById(boardId);
+
+    if (!currentBoard) {
+      return res.status(404).json("Board not found");
+    }
+
+    // Ensure user is authorized
+    const userId = req.user._id;
+    const isOwner = currentBoard.ownerId.equals(userId);
+    const isMember = currentBoard.memberIds.some((id) => id.equals(userId));
+
+    if (!isOwner && !isMember) {
+      return res
+        .status(403)
+        .json("You are not authorized to view cards of this board");
+    }
+
+    const cards = await Card.find({ boardId });
+
+    res.status(200).json({ cards });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

@@ -19,6 +19,7 @@ router.get("/", verifyToken, async (req, res) => {
   }
 });
 
+
 //get card by id - show card
 router.get("/:cardId", verifyToken, async (req, res) => {
   try {
@@ -247,18 +248,22 @@ router.put("/:cardId", verifyToken, async (req, res) => {
       update.description = req.body.description;
     }
 
-    if ("completedAt" in req.body) {
-      if (req.body.completedAt === null) {
-        update.completedAt = null;
-      } else {
-        const d = new Date(req.body.completedAt);
-        if (isNaN(d.getTime())) {
-          return res
-            .status(400)
-            .json("completedAt must be a valid date or null");
-        }
-        update.completedAt = d;
+    if ("completed" in req.body) {
+      if (typeof req.body.completed !== "boolean") {
+      return res
+        .status(400)
+        .json("completed  must be a boolean value");
       }
+      //remove column from the card if completed is true and remove card from column in board
+      if (req.body.completed === true) {
+        update.columnId = null;
+        update.position = 0;
+        await Board.updateOne(
+          { "columns.cardIds": card._id }, //find the column that has this card
+          { $pull: { "columns.$.cardIds": card._id } } //remove the card from that column
+        );
+      }
+      update.completed = req.body.completed;
     }
 
     const newCard = await Card.findByIdAndUpdate(

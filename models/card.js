@@ -35,8 +35,9 @@ const cardSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
-    completedAt: {
-      type: Date,
+    completed: {
+      type: Boolean,
+      default: false,
     },
     comments: [commentSchema],
   },
